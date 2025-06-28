@@ -6,7 +6,7 @@
 #
 #    https://shiny.posit.co/
 #
-
+library(stringr)
 library(shiny)
 library(shinydashboard)
 library(dplyr)
@@ -23,12 +23,28 @@ weighted_df <- read_rds("data/weighted_top_by_year_auto.rds")
 collabs_tbl <- read_rds("data/sailor_collaborations_named.rds")
 edges2 <- read_rds("data/edges2.rds")
 nodes_tbl <- readRDS("data/nodes_tbl.rds")
-
+edges2 %>% filter(rel_type %in% influence_types)
+  
 influence_types <- c("InStyleOf", "CoverOf", "DirectlySamples", 
                      "InterpolatesFrom", "LyricalReferenceTo")
 
+songs_in_range <- nodes_tbl %>%
+  filter("Node Type" == "Song", !is.na(release_date),
+         str_detect(release_date, "^\\d{4}")) %>%
+  mutate(year = as.integer(substr(release_date,1,4))) %>%
+  filter(year >= 2022, year <= 2035)
+available_genres <- union(
+  unique(songs_in_range$genre),
+  edges2 %>% filter(rel_type %in% influence_types) %>%   # ✅ CORRECT
+    mutate(song_id = if_else(rel_type == "LyricistOf", target, source)) %>%
+    inner_join(songs_in_range, by = c("song_id"="id")) %>%
+    pull(genre) %>% unique()
+)
+
+
 
 # Define UI for application that draws a histogram
+
 ui <- dashboardPage(
   dashboardHeader(title = "Sailor Shift Journey"),
   
@@ -43,7 +59,9 @@ ui <- dashboardPage(
       menuItem("Popularity Metrics", tabName = "popmetrics", icon = icon("chart-bar")),
       menuItem("Popularity Index Change", tabName = "popindex", icon = icon("exchange-alt")),
       menuItem("Predicted Future Stars", tabName = "futurestars", icon = icon("star")),
-      menuItem("Genre Influence Network", tabName = "genrenetwork", icon = icon("project-diagram"))
+      menuItem("Genre Influence Network", tabName = "genrenetwork", icon = icon("project-diagram")),
+      menuItem("Genre Trend Analysis", tabName = "genretrend", icon    = icon("chart-line")
+      )
       
       
       
@@ -161,6 +179,24 @@ ui <- dashboardPage(
                 box(
                   width = 9, status = "info", solidHeader = TRUE, title = "Interactive Genre Influence Network",
                   plotOutput("networkPlot", height = "700px")
+                )
+              )
+      ),
+      
+      tabItem(tabName = "genretrend",
+              fluidRow(
+                box(
+                  width = 3, status = "primary", solidHeader = TRUE, title = "Controls",
+                  selectInput("trend_genre", "Select Genre of Music:",
+                              choices = available_genres,                   # see next
+                              selected = available_genres[1]),
+                  sliderInput("trend_years", "Select Year Range:",
+                              min   = 2022, max = 2035,
+                              value = c(2025, 2035), step = 1, sep = "")
+                ),
+                box(
+                  width = 9, status = "info", solidHeader = TRUE, title = "Genre-wise Trend Analysis (2022–2035)",
+                  plotOutput("trendPlot", height = "700px")
                 )
               )
       )
@@ -437,6 +473,21 @@ top_predictions <- readRDS("data/top_predictions.rds")
                          "→ Genres → Influence Types \n(Excluding", central_genre, ")"))
   })
   
+  output$trendPlot <- renderPlot({
+    req(input$trend_genre)
+    
+    selected_genre <- input$trend_genre
+    year_rng       <- input$trend_years
+    start_year     <- year_rng[1]
+    end_year       <- year_rng[2]
+    
+    # (Then copy their data‐prep & ggplot code, replacing input names:)
+    # Step 1: genre_songs  (use trend_genre, trend_years)
+    # Step 2: counts_by_year
+    # Step 3: media_counts
+    # Step 4: final_table & pivot_longer
+    # Step 5: ggplot(...)
+  })
   
 
 }
