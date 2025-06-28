@@ -6,6 +6,8 @@
 #
 #    https://shiny.posit.co/
 #
+
+
 library(stringr)
 library(shiny)
 library(shinydashboard)
@@ -24,6 +26,7 @@ collabs_tbl <- read_rds("data/sailor_collaborations_named.rds")
 edges2 <- read_rds("data/edges2.rds")
 nodes_tbl <- readRDS("data/nodes_tbl.rds")
 edges2 %>% filter(rel_type %in% influence_types)
+top_influencers_named <- readRDS("data/top_influencers_named.rds")
   
 influence_types <- c("InStyleOf", "CoverOf", "DirectlySamples", 
                      "InterpolatesFrom", "LyricalReferenceTo")
@@ -55,41 +58,129 @@ ui <- dashboardPage(
   
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Overview", tabName = "overview", icon = icon("dashboard")),
-      menuItem("Top Influencers", tabName = "topinfluencers", icon = icon("star")),
-      menuItem("Raw Song Data", tabName = "raw", icon = icon("table")),
-      menuItem("Collaborators", tabName = "collaborators", icon = icon("users")),
-      menuItem("Influence Graph", tabName = "graph", icon = icon("project-diagram")),
-      menuItem("Top Artist Rankings", tabName = "topartists", icon = icon("chart-bar")),
-      menuItem("Popularity Metrics", tabName = "popmetrics", icon = icon("chart-bar")),
-      menuItem("Popularity Index Change", tabName = "popindex", icon = icon("exchange-alt")),
-      menuItem("Predicted Future Stars", tabName = "futurestars", icon = icon("star")),
-      menuItem("Genre Influence Network", tabName = "genrenetwork", icon = icon("project-diagram")),
-      menuItem("Genre Trend Analysis", tabName = "genretrend", icon    = icon("chart-line")
-      )
-      
-      
-      
-      
-      
-      
+      id = "sidebar_tabs",
+      menuItem("Overview",               tabName = "overview",     icon = icon("dashboard")),
+      menuItem("Top Influencers",        tabName = "topinfluencers",icon = icon("star")),
+      menuItem("Raw Song Data",          tabName = "raw",          icon = icon("table")),
+      menuItem("Collaborators",          tabName = "collaborators",icon = icon("users")),
+      menuItem("Influence Graph",        tabName = "graph",        icon = icon("project-diagram")),
+      menuItem("Top Artist Rankings",    tabName = "topartists",   icon = icon("chart-bar")),
+      menuItem("Popularity Index Change",tabName = "popindex",     icon = icon("exchange-alt")),
+      menuItem("Predicted Future Stars", tabName = "futurestars",  icon = icon("star")),
+      menuItem("Genre Influence Network",tabName = "genrenetwork", icon = icon("project-diagram")),
+      menuItem("Genre Trend Analysis",   tabName = "genretrend",   icon = icon("chart-line"))
     ),
-    selectInput("edgeType", "Filter by Influence Type:",
-                choices = c("All", unique(influences$`Edge Type`)), selected = "All"),
-    sliderInput("year_range", "Year Range:",
-                min = min(weighted_df$release_year),
-                max = max(weighted_df$release_year),
-                value = range(weighted_df$release_year), sep = "")
+    
+    ## only on the Overview tab
+    conditionalPanel(
+      condition = "input.sidebar_tabs == 'overview'",
+      selectInput("edgeType", "Filter by Influence Type:",
+                  choices = c("All", unique(influences$`Edge Type`)),
+                  selected = "All"),
+      sliderInput("year_range", "Year Range:",
+                  min   = min(weighted_df$release_year),
+                  max   = max(weighted_df$release_year),
+                  value = range(weighted_df$release_year),
+                  sep   = "")
+    ),
+    
+    ## only on the Top Influencers tab
+    conditionalPanel(
+      condition = "input.sidebar_tabs == 'topinfluencers'",
+      sliderInput("min_links", "Minimum Influence Links:",
+                  min   = 0,
+                  max   = max(top_influencers_named$n),
+                  value = 0,
+                  step  = 1)
+    ),
+    
+    ## only on the Popularity Metrics tab
+    conditionalPanel(
+      condition = "input.sidebar_tabs == 'popmetrics'",
+      # reuse the exact same inputId `year_range` here
+      sliderInput("year_range", "Year Range:",
+                  min   = min(weighted_df$release_year),
+                  max   = max(weighted_df$release_year),
+                  value = range(weighted_df$release_year),
+                  sep   = "")
+    ),
+    
+    ## only on the Genre Influence Network tab
+    conditionalPanel(
+      condition = "input.sidebar_tabs == 'genrenetwork'",
+      selectInput("selected_genre", "Select Central Genre:",
+                  choices = valid_genres,
+                  selected = valid_genres[1])
+    ),
+    
+    ## only on the Genre Trend Analysis tab
+    conditionalPanel(
+      condition = "input.sidebar_tabs == 'genretrend'",
+      selectInput("trend_genre", "Select Genre of Music:",
+                  choices = available_genres,
+                  selected = available_genres[1]),
+      sliderInput("trend_years", "Select Year Range:",
+                  min   = 2022,
+                  max   = 2035,
+                  value = c(2025, 2035),
+                  step  = 1,
+                  sep   = "")
+    )
   ),
   
   dashboardBody(
     tabItems(
-      tabItem(tabName = "overview",
-              h3("Performer Influence Type Breakdown"),
-              fluidRow(
-                box(plotOutput("influencePlot"), width = 12),
-                box(plotOutput("topByYearPlot"), width = 12)
-              )
+      tabItem(
+        tabName = "overview",
+        
+        fluidRow(
+          valueBoxOutput("vb_total_links",       width = 3),
+          valueBoxOutput("vb_top_type",          width = 3),
+          valueBoxOutput("vb_years_covered",     width = 3),
+          valueBoxOutput("vb_unique_performers", width = 3)
+        ),
+        
+        fluidRow(
+          box(
+            title = "How Sailor Shift Was Influenced",
+            status = "primary", solidHeader = TRUE,
+            width = 6,
+            plotOutput("influencePlot", height = "300px")
+          ),
+          box(
+            title = "Most Influential Performer by Release Year",
+            status = "primary", solidHeader = TRUE,
+            width = 6,
+            plotOutput("topByYearPlot", height = "300px")
+          )
+        ),
+        
+        fluidRow(
+          box(
+            title = "Popularity Metrics Over Time by Artist",
+            status = "primary", solidHeader = TRUE,
+            width = 12,
+            plotOutput("popularity_metrics_plot", height = "350px")
+          )
+        ),
+        
+        fluidRow(
+          box(
+            title = "Successful Stars in the Future",
+            status = "primary", solidHeader = TRUE,
+            width = 12,
+            
+         
+            dataTableOutput("future_stars_overview_table"),
+            
+            tags$div(
+              style = "margin-top:1em; padding:0.75em; border:1px solid #ccc; background:#fafafa;",
+              "Artists ranked in this table are emerging figures in the Oceanus Folk community. ",
+              "Their high final scores reflect strong past engagement and influence potential, ",
+              "positioning them as likely future leaders in the genre."
+            )
+          )
+        )
       ),
       
       tabItem(tabName = "topinfluencers",
@@ -132,16 +223,6 @@ ui <- dashboardPage(
                   sliderInput("min_score", "Minimum Composite Score:",
                               min = 0, max = 20, value = 0, step = 0.5),
                   width = 4
-                )
-              )
-      ),
-      
-      tabItem(tabName = "popmetrics",
-              h3("Popularity Metrics Over Time by Artist"),
-              fluidRow(
-                box(
-                  width = 12,
-                  plotOutput("popularity_metrics_plot", height = "600px")
                 )
               )
       ),
@@ -189,27 +270,22 @@ ui <- dashboardPage(
               )
       ),
       
-      tabItem(tabName = "genretrend",
-              fluidRow(
-                box(
-                  width = 3, status = "primary", solidHeader = TRUE, title = "Controls",
-                  selectInput("trend_genre", "Select Genre of Music:",
-                              choices = available_genres,                   # see next
-                              selected = available_genres[1]),
-                  sliderInput("trend_years", "Select Year Range:",
-                              min   = 2022, max = 2035,
-                              value = c(2025, 2035), step = 1, sep = "")
-                ),
-                box(
-                  width = 9, status = "info", solidHeader = TRUE, title = "Genre-wise Trend Analysis (2022–2035)",
-                  plotOutput("trendPlot", height = "700px")
-                )
-              )
+      tabItem(
+        tabName = "genretrend",
+        fluidRow(
+          box(
+            width = 12, status = "info", solidHeader = TRUE,
+            title = "Genre-wise Trend Analysis (2022–2035)",
+            plotOutput("trendPlot", height = "700px")
+          )
+        )
       )
       
-   )
+      
+    )
+  )
  )
-) 
+
   
 
 
@@ -217,6 +293,54 @@ ui <- dashboardPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
+  
+  # pre‐compute KPIs
+  total_links        <- nrow(influences)
+  years_range        <- range(weighted_df$release_year)
+  unique_performers  <- n_distinct(weighted_df$performer)
+  top_type           <- influences %>% 
+    count(`Edge Type`) %>% 
+    slice_max(n, n = 1) %>% 
+    pull(`Edge Type`)
+  
+  # render the valueBoxes
+  output$vb_total_links <- renderValueBox({
+    valueBox(
+      formatC(total_links, big.mark = ","),
+      subtitle = "Total Influence Links",
+      icon     = icon("project-diagram"),
+      color    = "blue"
+    )
+  })
+  
+  output$vb_top_type <- renderValueBox({
+    valueBox(
+      top_type,
+      subtitle = "Most Common Influence Type",
+      icon     = icon("star"),
+      color    = "teal"
+    )
+  })
+  
+  output$vb_years_covered <- renderValueBox({
+    valueBox(
+      paste0(years_range[1], " – ", years_range[2]),
+      subtitle = "Years Covered",
+      icon     = icon("calendar-alt"),
+      color    = "purple"
+    )
+  })
+  
+  output$vb_unique_performers <- renderValueBox({
+    valueBox(
+      unique_performers,
+      subtitle = "Distinct Performers",
+      icon     = icon("users"),
+      color    = "green"
+    )
+  })
+  
+  
   
   # Filtered data (influence type)
   filtered_influence <- reactive({
@@ -227,7 +351,7 @@ server <- function(input, output, session) {
     }
   })
   
-top_influencers_named <- readRDS("data/top_influencers_named.rds")
+
 sailor_songs_tbl <- readRDS("data/sailor_songs_tbl.rds")
 collab_summary <- readRDS("data/collab_summary.rds")
 influence_tbl <- readRDS("data/influence_tbl.rds")
@@ -236,8 +360,6 @@ edges_label_data <- readRDS("data/edges_label_data.rds")
 artist_metrics_scaled <- readRDS("data/artist_metrics_scaled.rds")
 popularity_df <- readRDS("data/popularity_df.rds")
 top_predictions <- readRDS("data/top_predictions.rds")
-
-
 
 
   output$influencePlot <- renderPlot({
@@ -280,12 +402,23 @@ top_predictions <- readRDS("data/top_predictions.rds")
   })
   
   
+  filtered_top_influencers <- reactive({
+    top_influencers_named %>%
+      filter(n >= input$min_links)
+  })
+  
   output$top_influencers_plot <- renderPlotly({
-    p <- ggplot(top_influencers_named, aes(x = n, y = reorder(display_name, n), text = paste("Influence Links:", n))) +
+    df <- filtered_top_influencers()
+    p <- ggplot(df,
+                aes(x = n,
+                    y = reorder(display_name, n),
+                    text = paste("Influence Links:", n))) +
       geom_col(fill = "steelblue") +
-      labs(title = "Top Influencers of All Time",
-           x = "Number of Influence Links",
-           y = "Influencer") +
+      labs(
+        title = "Top Influencers of All Time",
+        x     = "Number of Influence Links",
+        y     = "Influencer"
+      ) +
       theme_minimal()
     
     ggplotly(p, tooltip = "text")
@@ -368,35 +501,49 @@ top_predictions <- readRDS("data/top_predictions.rds")
   library(tibble)
   
   
-  slope_data <- tibble(
+  slope_data <- tibble::tibble(
     artist = c("Sailor Shift","Sailor Shift",
                "Kimberly Snyder","Kimberly Snyder",
                "Ping Tian",      "Ping Tian"),
     year   = c(2025, 2039,  2025, 2039,  2025, 2039),
     idx    = c(4.2, 7.9,    6.0, 6.8,    3.5, 3.9)
   ) %>%
-    mutate(year = factor(year, levels = c(2025, 2039)))
+    dplyr::mutate(year = factor(year, levels = c(2025, 2039)))
   
+  # now wire it up to output$pop_index_plot exactly once:
   output$pop_index_plot <- renderPlot({
-    ggplot(slope_data, aes(x = year, y = idx, color = artist, group = artist)) +
-      geom_line(size = 1.5) +
-      geom_point(size = 4) +
-      # label each point with “Artist: value”
-      geom_text(aes(label = paste0(artist, ": ", idx)),
-                vjust = -1, hjust = 0.5, show.legend = FALSE) +
-      labs(x = NULL, y = "Popularity Index") +
-      theme_minimal() +
-      theme(
+    ggplot2::ggplot(slope_data, aes(x = year, y = idx, color = artist, group = artist)) +
+      ggplot2::geom_line(size = 1.5) +
+      ggplot2::geom_point(size = 4) +
+      ggplot2::geom_text(aes(label = paste0(artist, ": ", idx)),
+                         vjust = -1, hjust = 0.5, show.legend = FALSE) +
+      ggplot2::labs(
+        title = "Popularity Index Change (2025 → 2039)",
+        x     = NULL,
+        y     = "Popularity Index"
+      ) +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(
         panel.grid.minor = element_blank(),
-        axis.text.x       = element_text(face = "bold"),
-        plot.title        = element_text(hjust = 0.5),
-        legend.position   = "none"
+        axis.text.x      = element_text(face = "bold"),
+        plot.title       = element_text(hjust = 0.5),
+        legend.position  = "none"
       )
   })
   
+  
   output$future_stars_table <- renderDataTable({
     top_predictions %>%
-      # If you’d like to show a simple ID column:
+      mutate(ID = row_number()) %>%
+      select(ID, Artist = artist, Score = final_score)
+  }, options = list(
+    pageLength   = 10,
+    searching    = FALSE,
+    lengthChange = FALSE
+  ))
+  
+  output$future_stars_overview_table <- renderDataTable({
+    top_predictions %>%
       mutate(ID = row_number()) %>%
       select(ID, Artist = artist, Score = final_score)
   }, options = list(
@@ -506,7 +653,7 @@ top_predictions <- readRDS("data/top_predictions.rds")
     
     # 2) Count each rel_type by year
     counts_by_year <- edges2 %>%
-      filter(rel_type %in% rel_types) %>%
+      filter(rel_type %in%  influence_types) %>%
       mutate(song_id = if_else(rel_type == "LyricistOf", target, source)) %>%
       inner_join(genre_songs, by = c("song_id" = "id")) %>%
       group_by(year, rel_type) %>%
