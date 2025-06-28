@@ -35,13 +35,18 @@ songs_in_range <- nodes_tbl %>%
   filter(year >= 2022, year <= 2035)
 available_genres <- union(
   unique(songs_in_range$genre),
-  edges2 %>% filter(rel_type %in% influence_types) %>%   # ✅ CORRECT
+  edges2 %>% filter(rel_type %in% influence_types) %>%   
     mutate(song_id = if_else(rel_type == "LyricistOf", target, source)) %>%
     inner_join(songs_in_range, by = c("song_id"="id")) %>%
     pull(genre) %>% unique()
 )
 
-
+valid_genres <- nodes_tbl %>%
+  filter(`Node Type` == "Song", !is.na(genre)) %>%
+  inner_join(edges2 %>% filter(rel_type %in% influence_types), by = c("id" = "target")) %>%
+  distinct(genre) %>%
+  pull(genre) %>%
+  sort()
 
 # Define UI for application that draws a histogram
 
@@ -173,8 +178,9 @@ ui <- dashboardPage(
                 box(
                   width = 3, status = "primary", solidHeader = TRUE, title = "Controls",
                   selectInput("selected_genre", "Select Central Genre:",
-                              choices = sort(unique(nodes_tbl$genre)),
-                              selected = sort(unique(nodes_tbl$genre))[1])
+                              choices = valid_genres,
+                              selected = valid_genres[1])
+                  
                 ),
                 box(
                   width = 9, status = "info", solidHeader = TRUE, title = "Interactive Genre Influence Network",
@@ -361,7 +367,7 @@ top_predictions <- readRDS("data/top_predictions.rds")
   
   library(tibble)
   
-  # hard-code the two‐point index values
+  
   slope_data <- tibble(
     artist = c("Sailor Shift","Sailor Shift",
                "Kimberly Snyder","Kimberly Snyder",
@@ -421,10 +427,10 @@ top_predictions <- readRDS("data/top_predictions.rds")
     
     rel_totals <- colSums(select(genre_counts, all_of(influence_types)))
     
-    if (nrow(genre_counts) == 0) {
-      showNotification("No data available for this genre.", type = "warning")
-      return(NULL)
-    }
+    validate(
+      need(nrow(genre_counts) > 0, 
+           paste("No influence links found for", central_genre))
+    )
     
     # 2) Build nodes & edges
     nodes <- bind_rows(
