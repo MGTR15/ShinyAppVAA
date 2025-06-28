@@ -29,7 +29,7 @@ influence_types <- c("InStyleOf", "CoverOf", "DirectlySamples",
                      "InterpolatesFrom", "LyricalReferenceTo")
 
 songs_in_range <- nodes_tbl %>%
-  filter("Node Type" == "Song", !is.na(release_date),
+  filter(`Node Type` == "Song", !is.na(release_date),
          str_detect(release_date, "^\\d{4}")) %>%
   mutate(year = as.integer(substr(release_date,1,4))) %>%
   filter(year >= 2022, year <= 2035)
@@ -476,17 +476,88 @@ top_predictions <- readRDS("data/top_predictions.rds")
   output$trendPlot <- renderPlot({
     req(input$trend_genre)
     
+    # parameters
     selected_genre <- input$trend_genre
-    year_rng       <- input$trend_years
-    start_year     <- year_rng[1]
-    end_year       <- year_rng[2]
+    start_year     <- input$trend_years[1]
+    end_year       <- input$trend_years[2]
     
-    # (Then copy their data‐prep & ggplot code, replacing input names:)
-    # Step 1: genre_songs  (use trend_genre, trend_years)
-    # Step 2: counts_by_year
-    # Step 3: media_counts
-    # Step 4: final_table & pivot_longer
-    # Step 5: ggplot(...)
+    # 1) Grab that genre’s songs
+    genre_songs <- nodes_tbl %>%
+      filter(
+        `Node Type` == "Song",
+        genre == selected_genre,
+        !is.na(release_date),
+        str_detect(release_date, "^\\d{4}")
+      ) %>%
+      mutate(year = as.integer(str_extract(release_date, "^\\d{4}"))) %>%
+      filter(year >= 2022, year <= 2035) %>%
+      select(id, year)
+    
+    if (nrow(genre_songs) == 0) {
+      showNotification("No data available for this genre.", type = "warning")
+      return(NULL)
+    }
+    
+    # 2) Count each rel_type by year
+    counts_by_year <- edges2 %>%
+      filter(rel_type %in% rel_types) %>%
+      mutate(song_id = if_else(rel_type == "LyricistOf", target, source)) %>%
+      inner_join(genre_songs, by = c("song_id" = "id")) %>%
+      group_by(year, rel_type) %>%
+      summarise(count = n(), .groups = "drop") %>%
+      pivot_wider(names_from  = rel_type,
+                  values_from = count,
+                  values_fill = 0) %>%
+      arrange(year)
+    
+    # 3) Count songs vs. albums by year
+    media_counts <- nodes_tbl %>%
+      filter(
+        `Node Type` %in% c("Song", "Album"),
+        genre == selected_genre,
+        !is.na(release_date),
+        str_detect(release_date, "^\\d{4}")
+      ) %>%
+      mutate(year = as.integer(str_extract(release_date, "^\\d{4}"))) %>%
+      filter(year >= 2022, year <= 2035) %>%
+      count(year, `Node Type`) %>%
+      pivot_wider(names_from  = `Node Type`,
+                  values_from = n,
+                  values_fill = 0) %>%
+      rename(song_count  = Song,
+             album_count = Album) %>%
+      arrange(year)
+    
+    # 4) Join them and pivot long
+    final_table <- counts_by_year %>%
+      left_join(media_counts, by = "year")
+    
+    plot_df <- final_table %>%
+      filter(year >= start_year, year <= end_year) %>%
+      pivot_longer(cols = -year,
+                   names_to  = "variable",
+                   values_to = "count")
+    
+    if (nrow(plot_df) == 0) {
+      showNotification("No data to plot for this genre in the selected year range.", type = "warning")
+      return(NULL)
+    }
+    
+    # 5) Draw the line chart
+    ggplot(plot_df, aes(x = year, y = count, color = variable)) +
+      geom_line(size = 1) +
+      geom_point(size = 2) +
+      scale_x_continuous(breaks = seq(start_year, end_year, by = 1)) +
+      labs(
+        title = paste("Trend of", selected_genre, "Music (", start_year, "–", end_year, ")"),
+        x = "Year",
+        y = "Count",
+        color = "Type"
+      ) +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1)
+      )
   })
   
 
