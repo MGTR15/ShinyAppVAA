@@ -372,7 +372,7 @@ top_predictions <- readRDS("data/top_predictions.rds")
     genre_counts <- edges2 %>%
       filter(rel_type %in% influence_types) %>%
       semi_join(
-        nodes_tbl %>% filter(Node Type == "Song", genre == central_genre) %>% select(id),
+        nodes_tbl %>% filter(`Node Type` == "Song", genre == central_genre) %>% select(id),
         by = c("target" = "id")
       ) %>%
       left_join(nodes_tbl %>% select(id, genre), by = c("source" = "id")) %>%
