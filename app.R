@@ -18,12 +18,14 @@ library(ggraph)
 library(tidyr)
 
 
-
-
 influences <- read_rds("data/influences_by_type.rds")
 weighted_df <- read_rds("data/weighted_top_by_year_auto.rds")
 collabs_tbl <- read_rds("data/sailor_collaborations_named.rds")
+edges2 <- read_rds("data/edges2.rds")
+nodes_tbl <- readRDS("data/nodes_tbl.rds")
 
+influence_types <- c("InStyleOf", "CoverOf", "DirectlySamples", 
+                     "InterpolatesFrom", "LyricalReferenceTo")
 
 
 # Define UI for application that draws a histogram
@@ -40,7 +42,8 @@ ui <- dashboardPage(
       menuItem("Top Artist Rankings", tabName = "topartists", icon = icon("chart-bar")),
       menuItem("Popularity Metrics", tabName = "popmetrics", icon = icon("chart-bar")),
       menuItem("Popularity Index Change", tabName = "popindex", icon = icon("exchange-alt")),
-      menuItem("Predicted Future Stars", tabName = "futurestars", icon = icon("star"))
+      menuItem("Predicted Future Stars", tabName = "futurestars", icon = icon("star")),
+      menuItem("Genre Influence Network", tabName = "genrenetwork", icon = icon("project-diagram"))
       
       
       
@@ -143,6 +146,21 @@ ui <- dashboardPage(
                     "Their high final scores reflect strong past engagement and influence potential, ",
                     "positioning them as likely future leaders in the genre."
                   )
+                )
+              )
+      ),
+      
+      tabItem(tabName = "genrenetwork",
+              fluidRow(
+                box(
+                  width = 3, status = "primary", solidHeader = TRUE, title = "Controls",
+                  selectInput("selected_genre", "Select Central Genre:",
+                              choices = sort(unique(nodes_tbl$genre)),
+                              selected = sort(unique(nodes_tbl$genre))[1])
+                ),
+                box(
+                  width = 9, status = "info", solidHeader = TRUE, title = "Interactive Genre Influence Network",
+                  plotOutput("networkPlot", height = "700px")
                 )
               )
       )
@@ -345,6 +363,79 @@ top_predictions <- readRDS("data/top_predictions.rds")
     lengthChange = FALSE
   ))
   
+  output$networkPlot <- renderPlot({
+    req(input$selected_genre)
+    
+    central_genre <- input$selected_genre
+    
+    # 1) Filter & tally
+    genre_counts <- edges2 %>%
+      filter(rel_type %in% influence_types) %>%
+      semi_join(
+        nodes_tbl %>% filter(Node Type == "Song", genre == central_genre) %>% select(id),
+        by = c("target" = "id")
+      ) %>%
+      left_join(nodes_tbl %>% select(id, genre), by = c("source" = "id")) %>%
+      filter(!is.na(genre)) %>%
+      group_by(genre, rel_type) %>%
+      summarise(n = n(), .groups = "drop") %>%
+      pivot_wider(names_from = rel_type, values_from = n, values_fill = 0) %>%
+      filter(genre != central_genre) %>%
+      mutate(total_genre = rowSums(select(., all_of(influence_types))))
+    
+    rel_totals <- colSums(select(genre_counts, all_of(influence_types)))
+    
+    if (nrow(genre_counts) == 0) {
+      showNotification("No data available for this genre.", type = "warning")
+      return(NULL)
+    }
+    
+    # 2) Build nodes & edges
+    nodes <- bind_rows(
+      tibble(id = central_genre, type = "central", count = sum(genre_counts$total_genre)),
+      tibble(id = genre_counts$genre, type = "genre", count = genre_counts$total_genre),
+      tibble(id = influence_types, type = "reltype", count = as.integer(rel_totals))
+    )
+    
+    edges1 <- tibble(from = central_genre,
+                     to   = genre_counts$genre,
+                     weight = genre_counts$total_genre)
+    
+    edges_rel <- genre_counts %>%
+      pivot_longer(all_of(influence_types), names_to = "to", values_to = "weight") %>%
+      filter(weight > 0) %>%
+      transmute(from = genre, to = to, weight = weight)
+    
+    edges <- bind_rows(edges1, edges_rel)
+    
+    # 3) Manual layout & plot
+    graph_plot <- tbl_graph(nodes, edges, directed = FALSE)
+    
+    genres <- nodes %>% filter(type == "genre")  %>% pull(id)
+    rels   <- nodes %>% filter(type == "reltype")%>% pull(id)
+    ang_g  <- seq(0, 2*pi, length.out = length(genres)+1)[-1]
+    ang_r  <- seq(0, 2*pi, length.out = length(rels)+1)[-1]
+    
+    layout <- tibble(
+      id = c(central_genre, genres, rels),
+      x  = c(0, cos(ang_g), 2*cos(ang_r)),
+      y  = c(0, sin(ang_g), 2*sin(ang_r))
+    )
+    
+    l <- create_layout(graph_plot, layout = "manual",
+                       x = layout$x, y = layout$y)
+    
+    ggraph(l) +
+      geom_edge_link(aes(width = weight), color = "grey70", alpha = 0.8) +
+      scale_edge_width(range = c(0.2, 1.5)) +
+      geom_node_point(aes(size = count, fill = type), shape = 21, color = "black") +
+      scale_size_area(max_size = 15) +
+      scale_fill_manual(values = c(central = "#1f78b4", genre = "#33a02c", reltype = "#e31a1c")) +
+      geom_node_text(aes(label = id), repel = TRUE, size = 3) +
+      theme_void() +
+      labs(title = paste(central_genre,
+                         "→ Genres → Influence Types \n(Excluding", central_genre, ")"))
+  })
   
   
 
